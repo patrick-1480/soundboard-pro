@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "download_url": "https://github.com/patrick-1480/soundboard-pro/releases/download/v2.0.0/SoundboardPro_Setup_v2.0.0.exe",
   "changelog": "• Initial release\n• Global hotkeys\n• Voice passthrough\n• Modern UI",
   "required": false,
