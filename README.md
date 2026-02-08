@@ -2,11 +2,7 @@
 
 Professional audio soundboard with global hotkeys for Windows.
 
-<<<<<<< HEAD
-![Version](https://img.shields.io/badge/version-2.3.0-blue)
-=======
-![Version](https://img.shields.io/badge/version-2.1.2-blue)
->>>>>>> 6a24bf6d8a4546d2464026dd07be43b831fac76c
+![Version](https://img.shields.io/badge/version-3.2.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 
@@ -22,17 +18,9 @@ Professional audio soundboard with global hotkeys for Windows.
 
 ## 📥 Download
 
-<<<<<<< HEAD
-**[Download Latest Release (v2.3.0)](https://github.com/patrick-1480/soundboard-pro/releases/latest)**
+**[Download Latest Release (v3.2.0)](https://github.com/patrick-1480/soundboard-pro/releases/latest)**
 
-Download `SoundboardPro_Setup_v2.3.0.exe` and run the installer.
-=======
-### Windows
-[Download Windows Installer](https://github.com/patrick-1480/soundboard-pro/releases/latest/download/SoundboardPro_Setup_v2.1.2.exe)
-
-### macOS
-[Download macOS DMG](https://github.com/patrick-1480/soundboard-pro/releases/latest/download/SoundboardPro_v2.1.2.dmg)
->>>>>>> 6a24bf6d8a4546d2464026dd07be43b831fac76c
+Download `SoundboardPro_Setup_v3.2.0.exe` and run the installer.
 
 ## 📋 Requirements
 
@@ -45,7 +33,7 @@ Download `SoundboardPro_Setup_v2.3.0.exe` and run the installer.
 1. Download and install VB-Audio Cable
 2. Restart your computer (required after VB Cable install)
 3. Download Soundboard Pro installer
-4. Run `SoundboardPro_Setup_v2.3.0.exe`
+4. Run `SoundboardPro_Setup_v3.2.0.exe`
 5. Launch Soundboard Pro
 6. Click Settings and configure:
    - **Microphone Input:** Your physical microphone
