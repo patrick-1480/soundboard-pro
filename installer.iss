@@ -2,7 +2,7 @@
 ; Requires Inno Setup 6: https://jrsoftware.org/isdl.php
 
 #define MyAppName "Soundboard Pro"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.1.2"
 #define MyAppPublisher "Patrick M."
 #define MyAppURL "https://github.com/patrick-1480/Soundboard-Pro"
 #define MyAppExeName "Soundboard Pro.exe"
