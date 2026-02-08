@@ -3,6 +3,7 @@ from setuptools import setup
 APP = ['app.py']
 DATA_FILES = [
     ('ui', ['ui/__init__.py', 'ui/settings.py', 'ui/theme.py', 'ui/sound_card.py']),
+    ('', ['config.json']),  # Add config.json
 ]
 
 OPTIONS = {
@@ -19,8 +20,10 @@ OPTIONS = {
         'NSMicrophoneUsageDescription': 'Soundboard Pro needs microphone access for audio processing.',
         'LSMinimumSystemVersion': '10.15',
     },
-    'packages': ['sounddevice', 'numpy', 'librosa', 'keyboard', 'scipy', 'numba'],
-    'includes': ['tkinter'],
+    'packages': ['sounddevice', 'numpy', 'librosa', 'keyboard', 'scipy', 'numba', 'cffi', 'soundfile'],
+    'includes': ['tkinter', 'tkinter.messagebox', 'tkinter.filedialog'],  # Add these
+    'frameworks': [],  # Add frameworks if needed
+    'resources': [],
 }
 
 setup(

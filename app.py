@@ -22,8 +22,15 @@ try:
     load_sounds()
 
     audio_engine.init(config, sounds)
-    audio_engine.start()
-    audio_engine.start_audio_thread()
+    
+    # Only start audio if devices are configured
+    if config.get("mic") is not None and config.get("out") is not None:
+        try:
+            audio_engine.start()
+            audio_engine.start_audio_thread()
+        except Exception as e:
+            print(f"Warning: Audio engine failed to start: {e}")
+            print("You can configure audio devices in Settings")
 
     # =========================
     # ROOT WINDOW
@@ -392,4 +399,16 @@ except Exception as e:
     import traceback
     print("ERROR OCCURRED:")
     traceback.print_exc()
-    input("Press Enter to exit...")
+    
+    # Show error dialog instead of input() which doesn't work in GUI apps
+    try:
+        from tkinter import messagebox
+        root_error = tk.Tk()
+        root_error.withdraw()
+        messagebox.showerror(
+            "Soundboard Pro - Startup Error",
+            f"Failed to start application:\n\n{str(e)}\n\nMake sure VB-Audio Cable is installed.\n\nCheck console for details."
+        )
+        root_error.destroy()
+    except:
+        pass  # If even the error dialog fails, just exit

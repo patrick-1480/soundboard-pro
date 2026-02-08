@@ -3,8 +3,8 @@ name: Build Installers
 on:
   push:
     tags:
-      - 'v*'  # Triggers on version tags like v2.0.0
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build-windows:
@@ -18,19 +18,28 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           pip install pyinstaller sounddevice numpy librosa keyboard scipy numba cffi soundfile
       
       - name: Build Windows EXE
         run: |
-          pyinstaller --noconsole --onefile --name "Soundboard Pro" --icon=icon.ico --add-data "ui;ui" --add-data "sounds;sounds" --hidden-import sounddevice --hidden-import numpy --hidden-import librosa --hidden-import scipy --hidden-import numba --hidden-import cffi --hidden-import soundfile --hidden-import keyboard app.py
+          pyinstaller --noconsole --onefile --name "Soundboard Pro" --icon=icon.ico --add-data "ui;ui" --add-data "sounds;sounds" --add-data "config.json;." --hidden-import sounddevice --hidden-import numpy --hidden-import librosa --hidden-import scipy --hidden-import numba --hidden-import cffi --hidden-import soundfile --hidden-import keyboard app.py
       
-      - name: Upload Windows Artifact
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y
+      
+      - name: Build Windows Installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+        shell: powershell
+      
+      - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
-          name: windows-exe
-          path: dist/Soundboard Pro.exe
+          name: windows-installer
+          path: installer_output/*.exe
 
   build-macos:
     runs-on: macos-latest
@@ -43,29 +52,39 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
-          pip install py2app sounddevice numpy librosa keyboard scipy numba
+          pip install py2app sounddevice numpy librosa keyboard scipy numba cffi soundfile
+      
+      - name: Install create-dmg
+        run: |
           brew install create-dmg
       
       - name: Build macOS App
         run: |
           python setup.py py2app
       
+      - name: Sign App (ad-hoc)
+        run: |
+          codesign --force --deep --sign - "dist/Soundboard Pro.app"
+      
       - name: Create DMG
         run: |
           create-dmg \
             --volname "Soundboard Pro" \
+            --window-pos 200 120 \
             --window-size 800 400 \
             --icon-size 100 \
+            --icon "Soundboard Pro.app" 200 190 \
+            --hide-extension "Soundboard Pro.app" \
             --app-drop-link 600 185 \
-            "SoundboardPro_v${{ github.ref_name }}.dmg" \
+            "SoundboardPro_${{ github.ref_name }}.dmg" \
             "dist/" || true
       
-      - name: Upload macOS Artifact
+      - name: Upload macOS Installer
         uses: actions/upload-artifact@v4
         with:
-          name: macos-dmg
+          name: macos-installer
           path: "*.dmg"
 
   create-release:
@@ -75,35 +94,40 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download Windows Artifact
+      - name: Download Windows Installer
         uses: actions/download-artifact@v4
         with:
-          name: windows-exe
-          path: ./artifacts/windows
+          name: windows-installer
+          path: ./windows
       
-      - name: Download macOS Artifact
+      - name: Download macOS Installer
         uses: actions/download-artifact@v4
         with:
-          name: macos-dmg
-          path: ./artifacts/macos
+          name: macos-installer
+          path: ./macos
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ./artifacts/windows/Soundboard Pro.exe
-            ./artifacts/macos/*.dmg
+            ./windows/*.exe
+            ./macos/*.dmg
           body: |
             # Soundboard Pro ${{ github.ref_name }}
             
-            ## Downloads
-            - **Windows:** Download `Soundboard Pro.exe` below
+            ## 📥 Downloads
+            - **Windows:** Download the `.exe` installer below
             - **macOS:** Download the `.dmg` file below
             
-            ## What's New
-            See CHANGELOG.md for details
+            ## 📋 Requirements
+            - **VB-Audio Cable:** https://vb-audio.com/Cable/
+            - **Windows:** Run as Administrator for global hotkeys
+            - **macOS:** Right-click → Open (first time only)
             
-            ## Requirements
-            - VB-Audio Cable: https://vb-audio.com/Cable/
+            ## ✨ Features
+            - Global hotkeys
+            - Voice passthrough
+            - Modern UI
+            - Auto-save settings
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

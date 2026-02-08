@@ -1,6 +1,18 @@
 import sounddevice as sd
 import numpy as np
 import threading
+import platform
+
+def request_microphone_permission():
+    """Request microphone permission on macOS"""
+    if platform.system() == 'Darwin':  # macOS
+        try:
+            import subprocess
+            # This will trigger the permission dialog
+            subprocess.run(['osascript', '-e', 'tell application "System Events" to return'], 
+                         capture_output=True, timeout=1)
+        except:
+            pass
 
 SR = 44100
 BLOCK = 1024
@@ -38,6 +50,8 @@ def set_monitor_enabled(enabled):
 def start():
     global mic_input_stream, virtual_mic_stream, headphone_stream
     stop()
+    
+    request_microphone_permission()
 
     if not config.get("mic") or not config.get("out"):
         return
