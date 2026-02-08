@@ -1,4 +1,4 @@
-name: Build Installers
+name: Build Windows Installer
 
 on:
   push:
@@ -41,54 +41,8 @@ jobs:
           name: windows-installer
           path: installer_output/*.exe
 
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install Python dependencies
-        run: |
-          pip install py2app sounddevice numpy librosa keyboard scipy numba cffi soundfile
-      
-      - name: Install create-dmg
-        run: |
-          brew install create-dmg
-      
-      - name: Build macOS App
-        run: |
-          python setup.py py2app
-      
-      - name: Sign App (ad-hoc)
-        run: |
-          codesign --force --deep --sign - "dist/Soundboard Pro.app"
-      
-      - name: Create DMG
-        run: |
-          create-dmg \
-            --volname "Soundboard Pro" \
-            --window-pos 200 120 \
-            --window-size 800 400 \
-            --icon-size 100 \
-            --icon "Soundboard Pro.app" 200 190 \
-            --hide-extension "Soundboard Pro.app" \
-            --app-drop-link 600 185 \
-            "SoundboardPro_${{ github.ref_name }}.dmg" \
-            "dist/" || true
-      
-      - name: Upload macOS Installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-installer
-          path: "*.dmg"
-
   create-release:
-    needs: [build-windows, build-macos]
+    needs: [build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -100,34 +54,38 @@ jobs:
           name: windows-installer
           path: ./windows
       
-      - name: Download macOS Installer
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-installer
-          path: ./macos
-      
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             ./windows/*.exe
-            ./macos/*.dmg
           body: |
-            # Soundboard Pro ${{ github.ref_name }}
+            # 🎵 Soundboard Pro ${{ github.ref_name }}
             
-            ## 📥 Downloads
-            - **Windows:** Download the `.exe` installer below
-            - **macOS:** Download the `.dmg` file below
+            ## 📥 Download
+            **Windows Installer:** Download the `.exe` file below
             
             ## 📋 Requirements
+            - **Windows 10 or 11** (64-bit)
             - **VB-Audio Cable:** https://vb-audio.com/Cable/
-            - **Windows:** Run as Administrator for global hotkeys
-            - **macOS:** Right-click → Open (first time only)
+            - **Run as Administrator** for global hotkeys to work in games
             
             ## ✨ Features
-            - Global hotkeys
-            - Voice passthrough
-            - Modern UI
-            - Auto-save settings
+            - 🎮 Global hotkeys (works in games, Discord, anywhere)
+            - 🎤 Voice passthrough (talk while sounds play)
+            - 🎧 Dual audio output (virtual mic + headphones)
+            - 🎨 Modern dark UI with smooth animations
+            - 💾 Auto-save all settings, volumes, and hotkeys
+            - 🔄 Monitor toggle (hear yourself or not)
+            
+            ## 🚀 Quick Start
+            1. Download the installer below
+            2. Install VB-Audio Cable if you haven't already
+            3. Run Soundboard Pro installer
+            4. Configure audio devices in Settings
+            5. Add sounds and set hotkeys!
+            
+            ## 🐛 Issues?
+            Report bugs at: https://github.com/patrick-1480/soundboard-pro/issues
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

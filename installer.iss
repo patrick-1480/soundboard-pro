@@ -2,13 +2,15 @@
 ; Requires Inno Setup 6: https://jrsoftware.org/isdl.php
 
 #define MyAppName "Soundboard Pro"
-#define MyAppVersion "2.1.2"
-#define MyAppPublisher "Patrick M."
-#define MyAppURL "https://github.com/patrick-1480/Soundboard-Pro"
+#define MyAppVersion "2.3.0"
+#define MyAppPublisher "Patrick"
+#define MyAppURL "https://github.com/patrick-1480/soundboard-pro"
 #define MyAppExeName "Soundboard Pro.exe"
 
 [Setup]
-AppId={{32dc4a92-c58f-4100-b517-3de55cc274cc}
+; NOTE: Generate a new GUID using https://www.guidgen.com
+; Replace YOUR-GUID-HERE with your generated GUID
+AppId={{e227767c-973b-4093-a7ed-93049d013ff2}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -41,7 +43,10 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
-Source: "sounds\*"; DestDir: "{app}\sounds"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "sounds\*"; DestDir: "{app}\sounds"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: FileExists('sounds\*')
+
+[Dirs]
+Name: "{app}\sounds"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

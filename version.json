@@ -1,8 +1,9 @@
 {
-  "version": "2.1.2",
-  "download_url": "https://github.com/patrick-1480/soundboard-pro/releases/download/v2.1.2/SoundboardPro_Setup_v2.1.1.exe",
-  "changelog": "• Initial release\n• Global hotkeys\n• Voice passthrough\n• Modern UI",
+  "version": "2.3.0",
+  "download_url": "https://github.com/patrick-1480/soundboard-pro/releases/download/v2.3.0/SoundboardPro_Setup_v2.3.0.exe",
+  "changelog": "• Windows-only release\n• Improved stability\n• Fixed audio device handling\n• Better error messages",
   "required": false,
-  "release_date": "2025-02-07",
-  "min_windows_version": "10"
+  "release_date": "2025-02-08",
+  "min_windows_version": "10",
+  "platform": "windows"
 }

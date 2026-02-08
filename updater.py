@@ -2,21 +2,9 @@
 import json
 import webbrowser
 import threading
-import platform
-
-def get_download_url(update_data):
-    """Get platform-specific download URL"""
-    system = platform.system()
-    
-    if system == "Windows":
-        return update_data.get("windows", {}).get("download_url")
-    elif system == "Darwin":  # macOS
-        return update_data.get("macos", {}).get("download_url")
-    else:
-        return None
 from tkinter import messagebox
 
-CURRENT_VERSION = "2.1.2"
+CURRENT_VERSION = "2.3.0"
 UPDATE_CHECK_URL = "https://raw.githubusercontent.com/patrick-1480/soundboard-pro/refs/heads/main/version.json"
 
 def parse_version(v):

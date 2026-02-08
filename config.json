@@ -3,14 +3,6 @@
   "out": 8,
   "monitor_out": null,
   "sounds": {
-    "charleskirk.wav": {
-      "volume": 0.64,
-      "hotkey": "+"
-    },
-    "fart.wav": {
-      "volume": 2.0,
-      "hotkey": "-"
-    },
     "test.wav": {
       "volume": 1.0,
       "hotkey": "enter"
