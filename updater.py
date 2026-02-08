@@ -5,10 +5,7 @@ import threading
 from tkinter import messagebox
 
 CURRENT_VERSION = "2.0.0"
-UPDATE_CHECK_URL = "https://raw.githubusercontent.com/yourusername/soundboard-pro/main/version.json"
-
-# Or use your own website:
-# UPDATE_CHECK_URL = "https://yourwebsite.com/soundboard/version.json"
+UPDATE_CHECK_URL = "https://raw.githubusercontent.com/patrick-1480/soundboard-pro/refs/heads/main/version.json?token=GHSAT0AAAAAADTLFQK3EWA3XU3DCYJ66TJM2MIDPZA"
 
 def parse_version(v):
     """Convert version string to comparable tuple"""
