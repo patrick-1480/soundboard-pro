@@ -1,8 +1,8 @@
 {
   "version": "2.0.0",
-  "download_url": "https://github.com/patrick-1480/Soundboard-Pro",
-  "changelog": "• Added monitor toggle\n• Improved modern UI\n• Added auto-save for all settings\n• Bug fixes and performance improvements",
+  "download_url": "https://github.com/patrick-1480/soundboard-pro/releases/download/v2.0.0/SoundboardPro_Setup_v2.0.0.exe",
+  "changelog": "• Initial release\n• Global hotkeys\n• Voice passthrough\n• Modern UI",
   "required": false,
-  "release_date": "2025-02-06",
+  "release_date": "2025-02-07",
   "min_windows_version": "10"
 }
