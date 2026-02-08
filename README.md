@@ -2,7 +2,11 @@
 
 Professional audio soundboard with global hotkeys for Windows.
 
+<<<<<<< HEAD
 ![Version](https://img.shields.io/badge/version-2.3.0-blue)
+=======
+![Version](https://img.shields.io/badge/version-2.1.2-blue)
+>>>>>>> 6a24bf6d8a4546d2464026dd07be43b831fac76c
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 
@@ -18,9 +22,17 @@ Professional audio soundboard with global hotkeys for Windows.
 
 ## 📥 Download
 
+<<<<<<< HEAD
 **[Download Latest Release (v2.3.0)](https://github.com/patrick-1480/soundboard-pro/releases/latest)**
 
 Download `SoundboardPro_Setup_v2.3.0.exe` and run the installer.
+=======
+### Windows
+[Download Windows Installer](https://github.com/patrick-1480/soundboard-pro/releases/latest/download/SoundboardPro_Setup_v2.1.2.exe)
+
+### macOS
+[Download macOS DMG](https://github.com/patrick-1480/soundboard-pro/releases/latest/download/SoundboardPro_v2.1.2.dmg)
+>>>>>>> 6a24bf6d8a4546d2464026dd07be43b831fac76c
 
 ## 📋 Requirements
 
