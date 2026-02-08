@@ -18,10 +18,10 @@ Professional audio soundboard with global hotkeys for Windows and macOS.
 ## 📥 Download
 
 ### Windows
-[Download Windows Installer](https://github.com/patrick-1480/soundboard-pro/releases/latest/download/SoundboardPro_Setup_v2.1.0.exe)
+[Download Windows Installer](https://github.com/patrick-1480/soundboard-pro/releases/latest/download/SoundboardPro_Setup_v2.1.2.exe)
 
 ### macOS
-[Download macOS DMG](https://github.com/patrick-1480/soundboard-pro/releases/latest/download/SoundboardPro_v2.1.0.dmg)
+[Download macOS DMG](https://github.com/patrick-1480/soundboard-pro/releases/latest/download/SoundboardPro_v2.1.2.dmg)
 
 ## 📋 Requirements
 
