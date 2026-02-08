@@ -4,15 +4,17 @@ on:
   push:
     tags:
       - 'v*'  # Triggers on version tags like v2.0.0
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
 
 jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
       
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       
@@ -22,10 +24,10 @@ jobs:
       
       - name: Build Windows EXE
         run: |
-          pyinstaller --noconsole --onefile --name "Soundboard Pro" --icon=icon.ico --add-data "ui;ui" app.py
+          pyinstaller --noconsole --onefile --name "Soundboard Pro" --icon=icon.ico --add-data "ui;ui" --add-data "sounds;sounds" --hidden-import sounddevice --hidden-import numpy --hidden-import librosa --hidden-import scipy --hidden-import numba --hidden-import cffi --hidden-import soundfile --hidden-import keyboard app.py
       
       - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-exe
           path: dist/Soundboard Pro.exe
@@ -33,10 +35,11 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
       
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       
@@ -56,34 +59,50 @@ jobs:
             --window-size 800 400 \
             --icon-size 100 \
             --app-drop-link 600 185 \
-            "SoundboardPro_v2.0.0.dmg" \
-            "dist/"
+            "SoundboardPro_v${{ github.ref_name }}.dmg" \
+            "dist/" || true
       
       - name: Upload macOS Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: SoundboardPro_v2.0.0.dmg
+          path: "*.dmg"
 
   create-release:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download Windows Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: windows-exe
+          path: ./artifacts/windows
       
       - name: Download macOS Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: macos-dmg
+          path: ./artifacts/macos
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            Soundboard Pro.exe
-            SoundboardPro_v2.0.0.dmg
+            ./artifacts/windows/Soundboard Pro.exe
+            ./artifacts/macos/*.dmg
+          body: |
+            # Soundboard Pro ${{ github.ref_name }}
+            
+            ## Downloads
+            - **Windows:** Download `Soundboard Pro.exe` below
+            - **macOS:** Download the `.dmg` file below
+            
+            ## What's New
+            See CHANGELOG.md for details
+            
+            ## Requirements
+            - VB-Audio Cable: https://vb-audio.com/Cable/
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

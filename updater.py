@@ -17,7 +17,7 @@ def get_download_url(update_data):
 from tkinter import messagebox
 
 CURRENT_VERSION = "2.0.0"
-UPDATE_CHECK_URL = "https://raw.githubusercontent.com/patrick-1480/soundboard-pro/refs/heads/main/version.json?token=GHSAT0AAAAAADTLFQK3EWA3XU3DCYJ66TJM2MIDPZA"
+UPDATE_CHECK_URL = "https://raw.githubusercontent.com/patrick-1480/soundboard-pro/refs/heads/main/version.json"
 
 def parse_version(v):
     """Convert version string to comparable tuple"""
