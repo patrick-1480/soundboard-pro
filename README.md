@@ -37,6 +37,14 @@ Professional audio soundboard with global hotkeys for Windows and macOS.
 4. Configure audio devices in Settings
 5. Add sounds and set hotkeys!
 
+## 📸 Screenshots
+
+![Main Window](docs/images/main-window.png)
+*Main interface with sound cards*
+
+![Settings](docs/images/settings.png)
+*Audio device configuration*
+
 ## 📖 Documentation
 
 - [Installation Guide](docs/INSTALLATION.md)
