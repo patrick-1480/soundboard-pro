@@ -1,0 +1,13 @@
+sounddevice
+numpy
+librosa
+keyboard
+
+# Additional dependencies (usually auto-installed):
+# scipy (for librosa)
+# numba (for librosa)
+# soundfile (for sounddevice)
+# cffi (for sounddevice)
+
+# Hardware requirement:
+# VB-Audio Virtual Cable (https://vb-audio.com/Cable/)
