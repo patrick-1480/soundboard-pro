@@ -4,7 +4,7 @@ import webbrowser
 import threading
 from tkinter import messagebox
 
-CURRENT_VERSION = "2.3.0"
+CURRENT_VERSION = "2.2.0"
 UPDATE_CHECK_URL = "https://raw.githubusercontent.com/patrick-1480/soundboard-pro/refs/heads/main/version.json"
 
 def parse_version(v):

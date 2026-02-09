@@ -1,6 +1,6 @@
 {
-  "version": "2.3.0",
-  "download_url": "https://github.com/patrick-1480/soundboard-pro/releases/download/v2.3.0/SoundboardPro_Setup_v2.3.0.exe",
+  "version": "2.2.0",
+  "download_url": "https://github.com/patrick-1480/soundboard-pro/releases/download/v2.2.0/SoundboardPro_Setup_v2.2.0.exe",
   "changelog": "• Windows-only release\n• Improved stability\n• Fixed audio device handling\n• Better error messages",
   "required": false,
   "release_date": "2025-02-08",
