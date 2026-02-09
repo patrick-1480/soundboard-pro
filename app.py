@@ -11,6 +11,39 @@ from sound_manager import sounds, load_sounds, toggle_sound, stop_all_sounds, ad
 from ui.settings import open_settings_window
 from ui.theme import *
 
+# Add near the top after imports
+import sounddevice as sd
+
+def check_vb_cable():
+    """Check if VB-Audio Cable is installed"""
+    try:
+        devices = sd.query_devices()
+        device_names = [str(d["name"]).lower() for d in devices]
+        
+        has_cable_input = any("cable input" in name for name in device_names)
+        has_cable_output = any("cable output" in name for name in device_names)
+        
+        return has_cable_input or has_cable_output
+    except:
+        return False
+
+# Then after creating root window:
+root = tk.Tk()
+# ... other setup ...
+
+# Check for VB Cable
+if not check_vb_cable():
+    result = messagebox.askyesno(
+        "VB-Audio Cable Not Found",
+        "VB-Audio Cable was not detected on your system.\n\n"
+        "It is required for Soundboard Pro to function.\n\n"
+        "Would you like to download it now?",
+        icon='warning'
+    )
+    if result:
+        import webbrowser
+        webbrowser.open("https://vb-audio.com/Cable/")
+
 # --- Wrap everything in try/except to catch startup crashes ---
 try:
 
