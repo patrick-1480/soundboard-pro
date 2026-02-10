@@ -60,27 +60,27 @@ jobs:
           files: |
             ./windows/*.exe
           body: |
-            # 🎵 Soundboard Pro ${{ github.ref_name }}
+            # 🎉 Soundboard Pro ${{ github.ref_name }}
             
             ## 📥 Download
             **Windows Installer:** Download the `.exe` file below
             
+            ## ✨ What's New in v3.0.0
+            - ⚡ **10x Faster Startup** - Opens in <1 second!
+            - 🎨 **Theme System** - Dark, Light, and Purple modes
+            - 📁 **Drag & Drop** - Drag MP3/WAV files to import
+            - 🎵 **Audio Effects** - Fade, Echo, Normalize, Speed, Pitch
+            - 🔄 **Auto-Version** - Easier maintenance
+            - 🛡️ **Security Updates** - Automated dependency management
+            
             ## 📋 Requirements
             - **Windows 10 or 11** (64-bit)
             - **VB-Audio Cable:** https://vb-audio.com/Cable/
-            - **Run as Administrator** for global hotkeys to work in games
-            
-            ## ✨ Features
-            - 🎮 Global hotkeys (works in games, Discord, anywhere)
-            - 🎤 Voice passthrough (talk while sounds play)
-            - 🎧 Dual audio output (virtual mic + headphones)
-            - 🎨 Modern dark UI with smooth animations
-            - 💾 Auto-save all settings, volumes, and hotkeys
-            - 🔄 Monitor toggle (hear yourself or not)
+            - **Run as Administrator** for global hotkeys
             
             ## 🚀 Quick Start
-            1. Download the installer below
-            2. Install VB-Audio Cable if you haven't already
+            1. Download installer below
+            2. Install VB-Audio Cable if needed
             3. Run Soundboard Pro installer
             4. Configure audio devices in Settings
             5. Add sounds and set hotkeys!

@@ -1,86 +1,125 @@
-# updater.py - Simple auto-update checker
+# updater.py - Auto-update checker
 import json
 import webbrowser
 import threading
 from tkinter import messagebox
 
-CURRENT_VERSION = "2.2.0"
+# Import version from single source of truth
+from version import __version__
+
+CURRENT_VERSION = __version__
 UPDATE_CHECK_URL = "https://raw.githubusercontent.com/patrick-1480/soundboard-pro/refs/heads/main/version.json"
 
-def parse_version(v):
-    """Convert version string to comparable tuple"""
-    return tuple(map(int, v.split('.')))
 
 def check_for_updates():
-    """Check if a new version is available"""
+    """
+    Check if a new version is available
+    
+    Returns:
+        dict or None: Update info if available, None otherwise
+    """
     try:
-        import requests
-        response = requests.get(UPDATE_CHECK_URL, timeout=5)
-        data = response.json()
+        import urllib.request
         
-        latest_version = data["version"]
+        with urllib.request.urlopen(UPDATE_CHECK_URL, timeout=5) as response:
+            data = json.loads(response.read().decode())
         
-        if parse_version(latest_version) > parse_version(CURRENT_VERSION):
-            return {
-                "available": True,
-                "version": latest_version,
-                "download_url": data["download_url"],
-                "changelog": data.get("changelog", "Bug fixes and improvements"),
-                "required": data.get("required", False)
-            }
+        latest_version = data.get('version', '0.0.0')
+        
+        # Compare versions
+        if _is_newer_version(latest_version, CURRENT_VERSION):
+            return data
+        
+        return None
+        
     except Exception as e:
         print(f"Update check failed: {e}")
         return None
-    
-    return {"available": False}
 
-def show_update_notification(update_info, parent_window=None):
-    """Show update notification dialog"""
-    if not update_info or not update_info.get("available"):
-        return
-    
-    version = update_info["version"]
-    changelog = update_info["changelog"]
-    url = update_info["download_url"]
-    required = update_info.get("required", False)
-    
-    if required:
-        title = "⚠️ Required Update Available"
-        message = f"Soundboard Pro v{version} is now available.\n\n"
-        message += "This update is required to continue using the app.\n\n"
-        message += f"What's new:\n{changelog}\n\n"
-        message += "Click OK to download the update."
-        
-        if messagebox.showinfo(title, message, parent=parent_window):
-            webbrowser.open(url)
-            import sys
-            sys.exit(0)
-    else:
-        title = "Update Available"
-        message = f"Soundboard Pro v{version} is now available!\n\n"
-        message += f"What's new:\n{changelog}\n\n"
-        message += "Would you like to download it now?"
-        
-        if messagebox.askyesno(title, message, parent=parent_window):
-            webbrowser.open(url)
 
-def check_updates_in_background(parent_window=None, silent=True):
-    """Check for updates in a background thread"""
+def _is_newer_version(latest, current):
+    """
+    Compare version strings
+    
+    Args:
+        latest: Latest version string (e.g. "3.0.0")
+        current: Current version string (e.g. "2.2.0")
+    
+    Returns:
+        bool: True if latest is newer than current
+    """
+    try:
+        latest_parts = [int(x) for x in latest.split('.')]
+        current_parts = [int(x) for x in current.split('.')]
+        
+        # Pad with zeros if needed
+        while len(latest_parts) < 3:
+            latest_parts.append(0)
+        while len(current_parts) < 3:
+            current_parts.append(0)
+        
+        return latest_parts > current_parts
+        
+    except:
+        return False
+
+
+def show_update_notification(root, update_data):
+    """
+    Show update notification dialog
+    
+    Args:
+        root: Tkinter root window
+        update_data: Update information dictionary
+    """
+    version = update_data.get('version', 'Unknown')
+    changelog = update_data.get('changelog', 'No changelog available')
+    download_url = update_data.get('download_url', '')
+    required = update_data.get('required', False)
+    
+    message = f"Version {version} is available!\n\n"
+    message += "What's New:\n"
+    message += changelog
+    message += "\n\nWould you like to download it now?"
+    
+    title = "🎉 Update Available!" if not required else "⚠️ Required Update"
+    
+    result = messagebox.askyesno(title, message, parent=root)
+    
+    if result and download_url:
+        webbrowser.open(download_url)
+
+
+def check_updates_in_background(root):
+    """
+    Check for updates in background thread
+    
+    Args:
+        root: Tkinter root window
+    """
     def check():
-        update_info = check_for_updates()
-        if update_info and update_info.get("available"):
-            # Schedule UI update on main thread
-            if parent_window:
-                parent_window.after(0, lambda: show_update_notification(update_info, parent_window))
-        elif not silent:
-            if parent_window:
-                parent_window.after(0, lambda: messagebox.showinfo("No Updates", "You're running the latest version!"))
+        # Wait a bit before checking
+        import time
+        time.sleep(2)
+        
+        update_data = check_for_updates()
+        
+        if update_data:
+            # Show notification in main thread
+            root.after(0, lambda: show_update_notification(root, update_data))
     
     thread = threading.Thread(target=check, daemon=True)
     thread.start()
 
-# Example usage in app.py:
-# from updater import check_updates_in_background
-# 
-# After creating root window:
-# check_updates_in_background(root)
+
+# For testing
+if __name__ == "__main__":
+    print(f"Current version: {CURRENT_VERSION}")
+    print("Checking for updates...")
+    
+    update = check_for_updates()
+    if update:
+        print(f"Update available: {update['version']}")
+        print(f"Changelog: {update['changelog']}")
+    else:
+        print("You're up to date!")

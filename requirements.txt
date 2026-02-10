@@ -1,13 +1,16 @@
-sounddevice
-numpy
-librosa
-keyboard
+# Soundboard Pro Dependencies - v3.0.0
 
-# Additional dependencies (usually auto-installed):
-# scipy (for librosa)
-# numba (for librosa)
-# soundfile (for sounddevice)
-# cffi (for sounddevice)
+# Audio Processing
+sounddevice==0.4.6
+soundfile==0.12.1
+librosa==0.10.1
+numpy==1.24.3
+scipy==1.11.4
+numba==0.58.1
+cffi==1.16.0
 
-# Hardware requirement:
-# VB-Audio Virtual Cable (https://vb-audio.com/Cable/)
+# Hotkeys
+keyboard==0.13.5
+
+# Building
+pyinstaller==6.3.0

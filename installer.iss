@@ -2,15 +2,15 @@
 ; Requires Inno Setup 6: https://jrsoftware.org/isdl.php
 
 #define MyAppName "Soundboard Pro"
-#define MyAppVersion "2.2.0"
+#define MyAppVersion "3.0.0"
 #define MyAppPublisher "Patrick"
 #define MyAppURL "https://github.com/patrick-1480/soundboard-pro"
 #define MyAppExeName "Soundboard Pro.exe"
 
 [Setup]
-; NOTE: Generate a new GUID using https://www.guidgen.com
-; Replace YOUR-GUID-HERE with your generated GUID
-AppId={{e227767c-973b-4093-a7ed-93049d013ff2}
+; NOTE: The value of AppId uniquely identifies this application.
+; Generate a new GUID using https://www.guidgen.com and replace below
+AppId={{12345678-1234-1234-1234-123456789ABC}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -63,7 +63,6 @@ var
 
 procedure InitializeWizard;
 begin
-  // Create custom page for VB-Audio Cable info
   VBCablePage := CreateInputOptionPage(wpWelcome,
     'VB-Audio Cable Required', 
     'This application requires VB-Audio Virtual Cable to function',
@@ -97,7 +96,6 @@ var
   ResultCode: Integer;
   UninstallExe: String;
 begin
-  // Check if previous version is installed
   if RegQueryStringValue(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{12345678-1234-1234-1234-123456789ABC}_is1', 
     'UninstallString', UninstallExe) then
   begin
