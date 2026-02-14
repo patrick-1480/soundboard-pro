@@ -40,6 +40,17 @@ Professional audio soundboard with global hotkeys, themes, and effects for Windo
 - **Multi-File Import** - Import multiple sounds at once
 - **Quick Access** - All sounds organized in one place
 
+## 📸 Screenshots
+
+### 🏠 Main Window
+![Main Window](docs/images/main-window.png)
+
+### ▶️ Using the Sounds Editor
+![Playing Sound](docs/images/playing.png)
+
+### ⚙️ Settings Panel
+![Settings](docs/images/settings.png)
+
 ## 📥 Download
 
 **[Download Latest Release (v3.0.0)](https://github.com/patrick-1480/soundboard-pro/releases/latest)**
