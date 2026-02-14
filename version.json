@@ -1,7 +1,7 @@
 {
-  "version": "2.2.0",
-  "download_url": "https://github.com/patrick-1480/soundboard-pro/releases/download/v2.2.0/SoundboardPro_Setup_v2.2.0.exe",
-  "changelog": "• Windows-only release\n• Improved stability\n• Fixed audio device handling\n• Better error messages",
+  "version": "3.0.0",
+  "download_url": "https://github.com/patrick-1480/soundboard-pro/releases/download/v3.0.0/SoundboardPro_Setup_v3.0.0.exe",
+  "changelog": "• 10x faster startup with lazy loading\n• Theme system (Dark, Light, Purple)\n• Drag & drop file import\n• Audio effects (fade, echo, normalize, speed)\n• Auto-version management\n• Security updates",
   "required": false,
   "release_date": "2025-02-08",
   "min_windows_version": "10",

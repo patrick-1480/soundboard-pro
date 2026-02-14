@@ -1,447 +1,596 @@
+# app.py  –  Soundboard Pro
 import tkinter as tk
 from tkinter import messagebox
-import threading
-import time
-import traceback
-import keyboard
+import traceback, os, shutil
 
-from config import load_config, save_config
-import audio_engine
-from sound_manager import sounds, load_sounds, toggle_sound, stop_all_sounds, add_sound, remove_sound, set_hotkey, remove_hotkey, set_sound_volume, set_config
-from ui.settings import open_settings_window
-from ui.theme import *
+from config  import load_config, save_config
+from version import __version__
+import themes as T
 
-# Add near the top after imports
-import sounddevice as sd
+from effects import init_sound_effects, get_active_effects, toggle_effect, EFFECTS
 
-def check_vb_cable():
-    """Check if VB-Audio Cable is installed"""
+_ae = None
+_sm = None
+sounds = {}
+
+config   = None
+root     = None
+_current_refresh = None
+
+
+def _c(n): return getattr(T, n)
+
+
+# ─────────────────────────────────────────────────────────────
+# LAZY LOADING
+# ─────────────────────────────────────────────────────────────
+def _load_modules():
+    global _ae, _sm, sounds
+    import audio_engine as ae;  _ae = ae
+    import sound_manager as sm; _sm = sm
+    sounds = sm.sounds
+    globals()["sounds"] = sounds
+
+
+def _init_audio():
+    if not (_ae and _sm): return
     try:
-        devices = sd.query_devices()
-        device_names = [str(d["name"]).lower() for d in devices]
-        
-        has_cable_input = any("cable input" in name for name in device_names)
-        has_cable_output = any("cable output" in name for name in device_names)
-        
-        return has_cable_input or has_cable_output
-    except:
-        return False
+        _sm.set_config(config)
+        # Detect device SR FIRST so sounds are loaded at the right rate.
+        if config.get("mic_out") is not None:
+            try:
+                import sounddevice as _sd
+                dev_info = _sd.query_devices(config["mic_out"])
+                detected_sr = int(dev_info["default_samplerate"])
+                _sm.set_target_sr(detected_sr)
+                print(f"[init] device SR detected early: {detected_sr}")
+            except Exception as e:
+                print(f"[init] SR pre-detection failed: {e}")
+        _sm.load_sounds()
+        for s in _sm.sounds.values():
+            init_sound_effects(s)
+        globals()["sounds"] = _sm.sounds
+        _ae.init(config, _sm.sounds)
+        if config.get("mic_out") is not None:
+            _ae.start()
+    except Exception:
+        traceback.print_exc()
 
-# Then after creating root window:
-root = tk.Tk()
-# ... other setup ...
 
-# Check for VB Cable
-if not check_vb_cable():
-    result = messagebox.askyesno(
-        "VB-Audio Cable Not Found",
-        "VB-Audio Cable was not detected on your system.\n\n"
-        "It is required for Soundboard Pro to function.\n\n"
-        "Would you like to download it now?",
-        icon='warning'
-    )
-    if result:
-        import webbrowser
-        webbrowser.open("https://vb-audio.com/Cable/")
+# ─────────────────────────────────────────────────────────────
+# SCROLL
+# ─────────────────────────────────────────────────────────────
+def _bind_scroll(canvas, widget=None):
+    t = widget if widget else canvas
+    def _s(e): canvas.yview_scroll(int(-1*(e.delta/120)), "units")
+    t.bind("<MouseWheel>", _s, add="+")
+    t.bind("<Button-4>",   lambda e: canvas.yview_scroll(-1, "units"), add="+")
+    t.bind("<Button-5>",   lambda e: canvas.yview_scroll( 1, "units"), add="+")
 
-# --- Wrap everything in try/except to catch startup crashes ---
-try:
 
-    # =========================
-    # APP INIT
-    # =========================
-    config = load_config()
-    set_config(config)
-    load_sounds()
+# ─────────────────────────────────────────────────────────────
+# DRAG AND DROP
+# ─────────────────────────────────────────────────────────────
+def _setup_drag_drop(widget):
+    try:
+        def _drop(event):
+            imported = 0
+            for fp in root.tk.splitlist(event.data):
+                if fp.lower().endswith((".mp3",".wav",".ogg",".flac")):
+                    try:
+                        os.makedirs(_sm.SOUNDS_DIR, exist_ok=True)
+                        shutil.copy2(fp, os.path.join(_sm.SOUNDS_DIR, os.path.basename(fp)))
+                        imported += 1
+                    except Exception as e: print(f"[drop] {e}")
+            if imported:
+                _sm.load_sounds()
+                for s in _sm.sounds.values(): init_sound_effects(s)
+                globals()["sounds"] = _sm.sounds
+                if _current_refresh: _current_refresh()
+                messagebox.showinfo("Imported", f"Imported {imported} file(s)!")
+        widget.drop_target_register("DND_Files")
+        widget.dnd_bind("<<Drop>>", _drop)
+    except Exception: pass
 
-    audio_engine.init(config, sounds)
-    
-    # Only start audio if devices are configured
-    if config.get("mic") is not None and config.get("out") is not None:
+
+# ─────────────────────────────────────────────────────────────
+# SETTINGS
+# ─────────────────────────────────────────────────────────────
+def _open_settings():
+    from ui.settings import open_settings_window
+    def _on_apply():
+        save_config(config)
+        T.set_theme(config.get("theme", "dark"))
+        if _ae:
+            try: _ae.start()
+            except Exception as e: print(f"[audio] restart: {e}")
+        build_main_app()
+    open_settings_window(parent=root, config=config, on_apply=_on_apply)
+
+
+# ─────────────────────────────────────────────────────────────
+# HOTKEY DIALOG
+# ─────────────────────────────────────────────────────────────
+def _hotkey_dialog(sound_name, callback):
+    dlg = tk.Toplevel(root)
+    dlg.title(f"Set Hotkey – {sound_name}")
+    dlg.geometry("420x210")
+    dlg.configure(bg=_c("BG"))
+    dlg.grab_set(); dlg.resizable(False, False)
+
+    tk.Label(dlg, text=f"Set hotkey for:  {sound_name}",
+             bg=_c("BG"), fg=_c("TXT"), font=_c("FONT_HEADING")).pack(pady=(26, 4))
+    tk.Label(dlg, text="Press any key combination…",
+             bg=_c("BG"), fg=_c("SUBTXT"), font=_c("FONT_MAIN")).pack()
+    res = tk.Label(dlg, text="—", bg=_c("BG"), fg=_c("ACCENT"), font=_c("FONT_MONO"))
+    res.pack(pady=10)
+    captured = [None]
+
+    def _key(ev):
+        if ev.keysym in ("Shift_L","Shift_R","Control_L","Control_R","Alt_L","Alt_R"): return
+        mods = []
+        if ev.state & 0x0001: mods.append("shift")
+        if ev.state & 0x0004: mods.append("ctrl")
+        if ev.state & 0x0008: mods.append("alt")
+        captured[0] = "+".join(mods + [ev.keysym.lower()])
+        res.config(text=captured[0])
+
+    dlg.bind("<Key>", _key)
+    bf = tk.Frame(dlg, bg=_c("BG")); bf.pack(pady=12)
+
+    def _save():
+        if captured[0]:
+            _sm.set_hotkey(sound_name, captured[0])
+            save_config(config); dlg.destroy(); callback()
+
+    sb = tk.Button(bf, text="Save", bg=_c("SUCCESS"), fg="white",
+                   font=_c("FONT_BUTTON"), command=_save, padx=22, pady=8)
+    sb.pack(side="left", padx=6)
+    T.style_button(sb, bg=_c("SUCCESS"), hover_bg=_c("SUCCESS_GLOW"))
+    cb = tk.Button(bf, text="Cancel", bg=_c("BTN"), fg=_c("TXT"),
+                   font=_c("FONT_BUTTON"), command=dlg.destroy, padx=22, pady=8)
+    cb.pack(side="left", padx=6)
+    T.style_button(cb)
+
+
+# ─────────────────────────────────────────────────────────────
+# EFFECT TOGGLE POPUP  (from main cards – no audio restart)
+# ─────────────────────────────────────────────────────────────
+def _effect_popup(sound_name, anchor_btn, refresh_badges):
+    """Small popup to toggle effects directly from the sound card."""
+    if sound_name not in (_sm.sounds if _sm else sounds):
+        return
+    sound = (_sm.sounds if _sm else sounds)[sound_name]
+    init_sound_effects(sound)
+
+    popup = tk.Toplevel(root)
+    popup.overrideredirect(True)
+    popup.configure(bg=_c("CARD"))
+    popup.attributes("-topmost", True)
+
+    x = anchor_btn.winfo_rootx()
+    y = anchor_btn.winfo_rooty() + anchor_btn.winfo_height() + 2
+    popup.geometry(f"+{x}+{y}")
+
+    title = tk.Frame(popup, bg=_c("PANEL"))
+    title.pack(fill="x")
+    tk.Label(title, text=f"  Effects – {sound_name}",
+             bg=_c("PANEL"), fg=_c("TXT"), font=_c("FONT_BOLD"),
+             padx=10, pady=8).pack(side="left")
+    tk.Button(title, text="×", bg=_c("PANEL"), fg=_c("TXT"),
+              font=_c("FONT_BOLD"), command=popup.destroy,
+              relief="flat", padx=8, pady=4).pack(side="right")
+
+    body = tk.Frame(popup, bg=_c("CARD")); body.pack(fill="both", padx=8, pady=8)
+
+    btn_refs = {}
+
+    def _toggle(k):
+        new_state = toggle_effect(sound, k)
+        lbl = EFFECTS[k]
+        btn_refs[k].config(
+            text=f"✓  {lbl}" if new_state else f"○  {lbl}",
+            bg=_c("SUCCESS_GLOW") if new_state else _c("BTN"),
+            fg="white" if new_state else _c("TXT"),
+        )
+        refresh_badges(sound_name)   # update badge row on the card
+
+    for k, lbl in EFFECTS.items():
+        active = sound["effects"].get(k, False)
+        b = tk.Button(body,
+                      text=f"✓  {lbl}" if active else f"○  {lbl}",
+                      bg=_c("SUCCESS_GLOW") if active else _c("BTN"),
+                      fg="white" if active else _c("TXT"),
+                      font=_c("FONT_SMALL"), anchor="w",
+                      padx=12, pady=6, width=18,
+                      command=lambda key=k: _toggle(key))
+        b.pack(fill="x", pady=1)
+        T.style_button(b,
+                       bg=_c("SUCCESS_GLOW") if active else _c("BTN"),
+                       hover_bg=_c("SUCCESS") if active else _c("BTN_HOVER"))
+        btn_refs[k] = b
+
+    # Close when clicking outside
+    def _focus_out(e):
         try:
-            audio_engine.start()
-            audio_engine.start_audio_thread()
-        except Exception as e:
-            print(f"Warning: Audio engine failed to start: {e}")
-            print("You can configure audio devices in Settings")
+            if popup.winfo_exists():
+                popup.destroy()
+        except Exception: pass
+    popup.bind("<FocusOut>", _focus_out)
+    popup.focus_set()
 
-    # =========================
-    # ROOT WINDOW
-    # =========================
-    root = tk.Tk()
-    root.title("Soundboard Pro")
-    root.geometry("700x850")
-    root.configure(bg=BG)
-    root.resizable(True, True)
 
-    # Loading screen
-    loading_frame = tk.Frame(root, bg=BG)
-    loading_frame.pack(expand=True, fill="both")
-    
-    tk.Label(loading_frame, text="SOUNDBOARD PRO", bg=BG, fg=ACCENT, font=("Segoe UI", 24, "bold")).pack(pady=(200, 10))
-    tk.Label(loading_frame, text="Loading audio engine...", bg=BG, fg=SUBTXT, font=FONT_MAIN).pack()
-    
-    root.update()
-    time.sleep(0.5)
-    loading_frame.destroy()
+# ─────────────────────────────────────────────────────────────
+# MAIN UI
+# ─────────────────────────────────────────────────────────────
+def build_main_app():
+    global _current_refresh
 
-    # Title bar
-    title_bar = tk.Frame(root, bg=PANEL, height=60)
-    title_bar.pack(fill="x", side="top")
-    title_bar.pack_propagate(False)
+    for w in root.winfo_children():
+        w.destroy()
 
-    title_container = tk.Frame(title_bar, bg=PANEL)
-    title_container.pack(side="left", padx=20, pady=15)
-    
-    tk.Label(title_container, text="SOUNDBOARD", bg=PANEL, fg=TXT, font=("Segoe UI", 16, "bold")).pack(side="left")
-    tk.Label(title_container, text="PRO", bg=PANEL, fg=ACCENT, font=("Segoe UI", 16, "bold")).pack(side="left", padx=(5, 0))
+    T.set_theme(config.get("theme", "dark"))
+    root.configure(bg=_c("BG"))
 
-    version_badge = tk.Label(title_bar, text="v2.0", bg=ACCENT_DARK, fg=TXT, font=FONT_SMALL, padx=8, pady=3)
-    version_badge.pack(side="left", padx=(0, 10))
+    # ── TOP BAR ──────────────────────────────────────────────
+    topbar = tk.Frame(root, bg=_c("PANEL"), height=58)
+    topbar.pack(fill="x"); topbar.pack_propagate(False)
+    inn = tk.Frame(topbar, bg=_c("PANEL"))
+    inn.pack(fill="both", expand=True, padx=20, pady=12)
 
-    # Hotkey dialog
-    def open_hotkey_dialog(name, parent_refresh):
-        dialog = tk.Toplevel(root)
-        dialog.title("Set Hotkey")
-        dialog.geometry("450x250")
-        dialog.configure(bg=BG)
-        dialog.transient(root)
-        dialog.grab_set()
+    tf = tk.Frame(inn, bg=_c("PANEL")); tf.pack(side="left")
+    tk.Label(tf, text="SOUNDBOARD PRO", bg=_c("PANEL"), fg=_c("TXT"),
+             font=("Segoe UI", 15, "bold")).pack(side="left")
+    tk.Label(tf, text=f"  v{__version__}", bg=_c("PANEL"), fg=_c("ACCENT"),
+             font=("Segoe UI", 9)).pack(side="left")
 
-        header = tk.Frame(dialog, bg=PANEL, height=60)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-        
-        tk.Label(header, text="CONFIGURE HOTKEY", bg=PANEL, fg=TXT, font=FONT_HEADING).pack(side="left", padx=20, pady=20)
+    bf = tk.Frame(inn, bg=_c("PANEL")); bf.pack(side="right")
 
-        content = tk.Frame(dialog, bg=BG)
-        content.pack(fill="both", expand=True, padx=30, pady=20)
+    def _add():
+        _sm.add_sound()
+        for s in _sm.sounds.values(): init_sound_effects(s)
+        globals()["sounds"] = _sm.sounds
+        if _current_refresh: _current_refresh()
 
-        tk.Label(content, text=f"Sound: {name}", bg=BG, fg=SUBTXT, font=FONT_MAIN).pack(pady=(0, 20))
+    def _stopall():
+        _sm.stop_all_sounds()
+        if _current_refresh: _current_refresh()
 
-        display = tk.Label(content, text="Press any key combination...", bg=CARD, fg=ACCENT, font=("Consolas", 14, "bold"), padx=30, pady=20)
-        display.pack(pady=10)
+    for txt, cmd, bg_n, hov_n in [
+        ("⚙  Settings",   _open_settings, "BTN",         "BTN_HOVER"),
+        ("+  Add Sound",  _add,            "BTN",         "BTN_HOVER"),
+        ("■  Stop All",   _stopall,        "DANGER_DARK", "DANGER"),
+    ]:
+        b = tk.Button(bf, text=txt, bg=_c(bg_n), fg=_c("TXT"),
+                      font=_c("FONT_BUTTON"), command=cmd, padx=14, pady=8)
+        b.pack(side="left", padx=3)
+        T.style_button(b, bg=_c(bg_n), hover_bg=_c(hov_n))
 
-        tk.Label(content, text="Press ESC to cancel", bg=BG, fg=SUBTXT_DARK, font=FONT_SMALL).pack(pady=10)
+    # ── MASTER CONTROLS ───────────────────────────────────────
+    mc = tk.Frame(root, bg=_c("CARD"),
+                  highlightbackground=_c("BORDER"), highlightthickness=1)
+    mc.pack(fill="x", padx=20, pady=(16, 8))
+    mci = tk.Frame(mc, bg=_c("CARD")); mci.pack(fill="x", padx=16, pady=12)
 
-        recorded_key = {"value": None}
+    mch = tk.Frame(mci, bg=_c("CARD")); mch.pack(fill="x", pady=(0, 10))
+    tk.Label(mch, text="Master Controls", bg=_c("CARD"), fg=_c("TXT"),
+             font=_c("FONT_HEADING")).pack(side="left")
 
-        def on_key(e):
-            if e.event_type == "down":
-                if e.name == "esc":
-                    dialog.destroy()
-                    return
+    mon = [config.get("monitor_enabled", True)]
+    def _mon_lbl(): return "Hear Myself: ON" if mon[0] else "Sounds Only"
+    def _mon_bg():  return _c("SUCCESS") if mon[0] else _c("BTN")
+    def _mon_fg():  return "white"       if mon[0] else _c("TXT")
 
-                modifiers = []
-                if keyboard.is_pressed('ctrl'):
-                    modifiers.append('ctrl')
-                if keyboard.is_pressed('shift'):
-                    modifiers.append('shift')
-                if keyboard.is_pressed('alt'):
-                    modifiers.append('alt')
+    mon_btn = tk.Button(mch, text=_mon_lbl(), bg=_mon_bg(), fg=_mon_fg(),
+                        font=_c("FONT_SMALL"), padx=12, pady=5)
+    mon_btn.pack(side="right")
 
-                key = e.name
-                if key not in ['ctrl', 'shift', 'alt']:
-                    if modifiers:
-                        hotkey_str = '+'.join(modifiers) + '+' + key
-                    else:
-                        hotkey_str = key
-
-                    recorded_key["value"] = hotkey_str
-                    display.config(text=f"{hotkey_str}", fg=SUCCESS)
-                    
-                    dialog.after(500, lambda: apply_and_close())
-
-        def apply_and_close():
-            keyboard.unhook(hook)
-            if recorded_key["value"]:
-                if set_hotkey(name, recorded_key["value"]):
-                    dialog.destroy()
-                    parent_refresh()
-                else:
-                    messagebox.showerror("Error", f"Failed to set hotkey: {recorded_key['value']}")
-                    dialog.destroy()
-            else:
-                dialog.destroy()
-
-        hook = keyboard.hook(on_key)
-        dialog.protocol("WM_DELETE_WINDOW", lambda: (keyboard.unhook(hook), dialog.destroy()))
-
-    # Control bar
-    control_bar = tk.Frame(root, bg=PANEL, height=50)
-    control_bar.pack(fill="x", pady=(0, 0))
-    control_bar.pack_propagate(False)
-
-    controls_left = tk.Frame(control_bar, bg=PANEL)
-    controls_left.pack(side="left", padx=15, pady=10)
-
-    def open_settings():
-        open_settings_window(parent=root, config=config, on_apply=lambda: (save_config(config), audio_engine.stop(), audio_engine.start(), audio_engine.start_audio_thread()))
-
-    settings_btn = tk.Button(controls_left, text=f"{ICON_SETTINGS} Settings", bg=BTN, fg=TXT, font=FONT_BUTTON, command=open_settings, padx=15, pady=8)
-    settings_btn.pack(side="left", padx=(0, 8))
-    style_button(settings_btn)
-
-    add_btn = tk.Button(controls_left, text=f"{ICON_ADD} Add Sound", bg=ACCENT_DARK, fg=TXT, font=FONT_BUTTON, command=lambda: (add_sound(), refresh()), padx=15, pady=8)
-    add_btn.pack(side="left", padx=(0, 8))
-    style_button(add_btn, bg=ACCENT_DARK, hover_bg=ACCENT)
-
-    stop_btn = tk.Button(controls_left, text=f"{ICON_STOP} Stop All", bg=DANGER_DARK, fg=TXT, font=FONT_BUTTON, command=lambda: stop_all_sounds() or refresh(), padx=15, pady=8)
-    stop_btn.pack(side="left")
-    style_button(stop_btn, bg=DANGER_DARK, hover_bg=DANGER)
-
-    # Master volume panel
-    volume_container = tk.Frame(root, bg=BG)
-    volume_container.pack(fill="x", padx=20, pady=(15, 10))
-
-    volume_panel = tk.Frame(volume_container, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
-    volume_panel.pack(fill="x")
-
-    vol_header = tk.Frame(volume_panel, bg=CARD)
-    vol_header.pack(fill="x", padx=20, pady=(15, 10))
-    
-    vol_header_left = tk.Frame(vol_header, bg=CARD)
-    vol_header_left.pack(side="left")
-    
-    tk.Label(vol_header_left, text="MASTER CONTROLS", bg=CARD, fg=TXT, font=FONT_HEADING).pack(side="left")
-    
-    # Monitor toggle on the right side of header
-    monitor_toggle_frame = tk.Frame(vol_header, bg=CARD)
-    monitor_toggle_frame.pack(side="right")
-    
-    tk.Label(monitor_toggle_frame, text="Hear Myself", bg=CARD, fg=SUBTXT, font=FONT_SMALL).pack(side="left", padx=(0, 8))
-    
-    monitor_var = tk.BooleanVar(value=config.get("monitor_enabled", True))
-    
-    def toggle_monitor():
-        enabled = monitor_var.get()
-        audio_engine.set_monitor_enabled(enabled)
-        config["monitor_enabled"] = enabled
+    def _toggle_mon():
+        mon[0] = not mon[0]
+        config["monitor_enabled"] = mon[0]
         save_config(config)
-        # Update button appearance
-        if enabled:
-            monitor_btn.config(bg=SUCCESS_GLOW, fg=TXT, text="ON")
-            style_button(monitor_btn, bg=SUCCESS_GLOW, hover_bg=SUCCESS)
+        if _ae: _ae.set_monitor_enabled(mon[0])
+        mon_btn.config(text=_mon_lbl(), bg=_mon_bg(), fg=_mon_fg())
+        T.style_button(mon_btn, bg=_mon_bg(),
+                       hover_bg=_c("SUCCESS_GLOW") if mon[0] else _c("BTN_HOVER"))
+
+    mon_btn.config(command=_toggle_mon)
+    T.style_button(mon_btn, bg=_mon_bg(),
+                   hover_bg=_c("SUCCESS_GLOW") if mon[0] else _c("BTN_HOVER"))
+
+    vf = tk.Frame(mci, bg=_c("CARD")); vf.pack(fill="x")
+
+    def _slider(parent, label, key):
+        f = tk.Frame(parent, bg=_c("CARD"))
+        f.pack(side="left", fill="x", expand=True, padx=(0, 12))
+        lf = tk.Frame(f, bg=_c("CARD")); lf.pack(fill="x", pady=(0, 4))
+        tk.Label(lf, text=label, bg=_c("CARD"), fg=_c("SUBTXT"),
+                 font=_c("FONT_SMALL")).pack(side="left")
+        vl = tk.Label(lf, text=f"{int(config.get(key,1.0)*100)}%",
+                      bg=_c("CARD"), fg=_c("ACCENT"), font=_c("FONT_MONO"))
+        vl.pack(side="right")
+        sl = tk.Scale(f, from_=0, to=2, resolution=0.01, orient="horizontal",
+                      bg=_c("CARD"), fg=_c("TXT"), troughcolor=_c("BTN"),
+                      highlightthickness=0, showvalue=0)
+        sl.set(config.get(key, 1.0))
+        def _cmd(v, k=key, lbl=vl):
+            config[k] = float(v); lbl.config(text=f"{int(float(v)*100)}%")
+            save_config(config)
+        sl.config(command=_cmd); sl.pack(fill="x")
+
+    _slider(vf, "Microphone",  "mic_volume")
+    _slider(vf, "Headphones",  "headphone_volume")
+
+    # ── SOUNDS HEADER ─────────────────────────────────────────
+    sh = tk.Frame(root, bg=_c("BG")); sh.pack(fill="x", padx=20, pady=(8, 4))
+    tk.Label(sh, text="Sounds", bg=_c("BG"), fg=_c("TXT"),
+             font=_c("FONT_HEADING")).pack(side="left")
+    count_lbl = tk.Label(sh, text="", bg=_c("BG"), fg=_c("SUBTXT"),
+                         font=_c("FONT_SMALL"))
+    count_lbl.pack(side="left", padx=(10, 0))
+
+    # ── SCROLL CANVAS ─────────────────────────────────────────
+    wrap = tk.Frame(root, bg=_c("BG"))
+    wrap.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+    scrollbar = tk.Scrollbar(wrap, orient="vertical")
+    canvas    = tk.Canvas(wrap, bg=_c("BG"), highlightthickness=0,
+                          yscrollcommand=scrollbar.set)
+    scrollbar.config(command=canvas.yview)
+    scrollbar.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+
+    content = tk.Frame(canvas, bg=_c("BG"))
+    win_id  = canvas.create_window((0, 0), window=content, anchor="nw")
+    canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
+    content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+    def _scroll(e):  canvas.yview_scroll(int(-1*(e.delta/120)), "units")
+    def _scu(e):     canvas.yview_scroll(-1, "units")
+    def _scd(e):     canvas.yview_scroll( 1, "units")
+    for w in (canvas, root, wrap):
+        w.bind("<MouseWheel>", _scroll, add="+")
+        w.bind("<Button-4>",   _scu,    add="+")
+        w.bind("<Button-5>",   _scd,    add="+")
+
+    _setup_drag_drop(canvas)
+
+    play_btns   = {}
+    badge_rows  = {}   # name → frame holding effect badges
+
+    # ─────────────────────────────────────────────────────────
+    # BADGE ROW  –  shows active effects as coloured pills
+    # ─────────────────────────────────────────────────────────
+    def _rebuild_badges(name):
+        if name not in badge_rows: return
+        row = badge_rows[name]
+        for w in row.winfo_children(): w.destroy()
+        cur = _sm.sounds if _sm else sounds
+        if name not in cur: return
+        active = get_active_effects(cur[name])
+        if not active:
+            tk.Label(row, text="No effects active", bg=_c("CARD"),
+                     fg=_c("SUBTXT_DARK"), font=_c("FONT_SMALL")).pack(side="left")
         else:
-            monitor_btn.config(bg=BTN, fg=SUBTXT, text="OFF")
-            style_button(monitor_btn)
-    
-    monitor_btn = tk.Button(
-        monitor_toggle_frame,
-        text="ON" if monitor_var.get() else "OFF",
-        bg=SUCCESS_GLOW if monitor_var.get() else BTN,
-        fg=TXT if monitor_var.get() else SUBTXT,
-        font=FONT_MONO,
-        command=lambda: (monitor_var.set(not monitor_var.get()), toggle_monitor()),
-        width=5,
-        padx=10,
-        pady=4
-    )
-    monitor_btn.pack(side="left")
-    if monitor_var.get():
-        style_button(monitor_btn, bg=SUCCESS_GLOW, hover_bg=SUCCESS)
-    else:
-        style_button(monitor_btn)
-    
-    # Set initial monitor state
-    audio_engine.set_monitor_enabled(monitor_var.get())
+            for k in active:
+                lbl = EFFECTS.get(k, k)
+                pill = tk.Label(row, text=lbl,
+                                bg=_c("ACCENT_DARK"), fg=_c("TXT"),
+                                font=_c("FONT_SMALL"), padx=7, pady=2)
+                pill.pack(side="left", padx=(0, 4))
 
-    # Mic volume
-    mic_frame = tk.Frame(volume_panel, bg=CARD)
-    mic_frame.pack(fill="x", padx=20, pady=(5, 10))
-    
-    mic_label_frame = tk.Frame(mic_frame, bg=CARD)
-    mic_label_frame.pack(fill="x", pady=(0, 5))
-    
-    tk.Label(mic_label_frame, text="Microphone", bg=CARD, fg=TXT, font=FONT_BOLD).pack(side="left")
-    
-    mic_val_label = tk.Label(mic_label_frame, text="100%", bg=CARD, fg=ACCENT, font=FONT_MONO)
-    mic_val_label.pack(side="right")
-
-    mic_vol_slider = tk.Scale(mic_frame, from_=0, to=2, resolution=0.01, orient="horizontal", bg=CARD, fg=TXT, troughcolor=BTN, highlightthickness=0, showvalue=0, command=lambda v: (audio_engine.set_mic_volume(float(v)), save_mic_volume(float(v)), mic_val_label.config(text=f"{int(float(v)*100)}%")))
-    mic_vol_slider.set(config.get("mic_volume", 1.0))
-    mic_vol_slider.pack(fill="x")
-
-    # Headphone volume
-    hp_frame = tk.Frame(volume_panel, bg=CARD)
-    hp_frame.pack(fill="x", padx=20, pady=(5, 15))
-    
-    hp_label_frame = tk.Frame(hp_frame, bg=CARD)
-    hp_label_frame.pack(fill="x", pady=(0, 5))
-    
-    tk.Label(hp_label_frame, text="Headphones", bg=CARD, fg=TXT, font=FONT_BOLD).pack(side="left")
-    
-    hp_val_label = tk.Label(hp_label_frame, text="100%", bg=CARD, fg=ACCENT, font=FONT_MONO)
-    hp_val_label.pack(side="right")
-
-    headphone_vol_slider = tk.Scale(hp_frame, from_=0, to=2, resolution=0.01, orient="horizontal", bg=CARD, fg=TXT, troughcolor=BTN, highlightthickness=0, showvalue=0, command=lambda v: (audio_engine.set_headphone_volume(float(v)), save_headphone_volume(float(v)), hp_val_label.config(text=f"{int(float(v)*100)}%")))
-    headphone_vol_slider.set(config.get("headphone_volume", 1.0))
-    headphone_vol_slider.pack(fill="x")
-
-    def save_mic_volume(vol):
-        config["mic_volume"] = vol
-        save_config(config)
-
-    def save_headphone_volume(vol):
-        config["headphone_volume"] = vol
-        save_config(config)
-
-    audio_engine.set_mic_volume(config.get("mic_volume", 1.0))
-    audio_engine.set_headphone_volume(config.get("headphone_volume", 1.0))
-    mic_val_label.config(text=f"{int(config.get('mic_volume', 1.0)*100)}%")
-    hp_val_label.config(text=f"{int(config.get('headphone_volume', 1.0)*100)}%")
-
-    # Sounds header
-    sounds_header = tk.Frame(root, bg=BG)
-    sounds_header.pack(fill="x", padx=20, pady=(15, 10))
-    
-    tk.Label(sounds_header, text="SOUNDS", bg=BG, fg=TXT, font=FONT_HEADING).pack(side="left")
-    
-    sound_count_label = tk.Label(sounds_header, text="0 loaded", bg=BG, fg=SUBTXT, font=FONT_SMALL)
-    sound_count_label.pack(side="left", padx=(10, 0))
-
-    # Scroll area
-    canvas = tk.Canvas(root, bg=BG, highlightthickness=0)
-    scroll = tk.Scrollbar(root, command=canvas.yview, bg=PANEL, troughcolor=BG)
-    content = tk.Frame(canvas, bg=BG)
-
-    canvas.create_window((0, 0), window=content, anchor="nw")
-    canvas.configure(yscrollcommand=scroll.set)
-
-    canvas.pack(side="left", fill="both", expand=True, padx=(20, 0), pady=(0, 20))
-    scroll.pack(side="right", fill="y", padx=(0, 20), pady=(0, 20))
-
-    sound_buttons = {}
-
+    # ─────────────────────────────────────────────────────────
+    # REFRESH
+    # ─────────────────────────────────────────────────────────
     def refresh():
-        for w in content.winfo_children():
-            w.destroy()
-        sound_buttons.clear()
+        for w in content.winfo_children(): w.destroy()
+        play_btns.clear(); badge_rows.clear()
+        cur = _sm.sounds if _sm else sounds
+        count_lbl.config(text=f"{len(cur)} loaded")
 
-        sound_count_label.config(text=f"{len(sounds)} loaded")
-
-        if not sounds:
-            empty_frame = tk.Frame(content, bg=BG)
-            empty_frame.pack(expand=True, fill="both", pady=100)
-            
-            tk.Label(empty_frame, text="No sounds yet", bg=BG, fg=SUBTXT, font=("Segoe UI", 14)).pack()
-            tk.Label(empty_frame, text=f"Click '{ICON_ADD} Add Sound' to get started", bg=BG, fg=SUBTXT_DARK, font=FONT_MAIN).pack(pady=(5, 0))
+        if not cur:
+            ef = tk.Frame(content, bg=_c("BG")); ef.pack(pady=80)
+            tk.Label(ef, text="No sounds yet",
+                     bg=_c("BG"), fg=_c("SUBTXT"), font=("Segoe UI", 14)).pack()
+            tk.Label(ef, text="Drag & drop audio files here, or click  +  Add Sound",
+                     bg=_c("BG"), fg=_c("SUBTXT_DARK"), font=_c("FONT_MAIN")).pack(pady=(6,0))
+            for w in (ef, *ef.winfo_children()):
+                w.bind("<MouseWheel>", _scroll, add="+")
             return
 
-        for name, s in sounds.items():
-            card = tk.Frame(content, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        for name, s in cur.items():
+            init_sound_effects(s)
+            playing = s.get("playing", False)
+
+            card = tk.Frame(content, bg=_c("CARD"),
+                            highlightbackground=_c("BORDER"), highlightthickness=1)
             card.pack(fill="x", pady=(0, 10))
+            ci = tk.Frame(card, bg=_c("CARD")); ci.pack(fill="both", padx=16, pady=12)
 
-            card_content = tk.Frame(card, bg=CARD)
-            card_content.pack(fill="both", padx=15, pady=12)
+            # Row 1: play / effects popup / editor / delete
+            r1 = tk.Frame(ci, bg=_c("CARD")); r1.pack(fill="x", pady=(0, 8))
 
-            top_row = tk.Frame(card_content, bg=CARD)
-            top_row.pack(fill="x", pady=(0, 10))
+            pb = tk.Button(r1,
+                           text=f"▶  {name}" if playing else name,
+                           bg=_c("SUCCESS_GLOW") if playing else _c("BTN"),
+                           fg="#fff" if playing else _c("TXT"),
+                           font=_c("FONT_LARGE"), anchor="w",
+                           padx=20, pady=11,
+                           command=lambda n=name: (_sm.toggle_sound(n), refresh()))
+            pb.pack(side="left", fill="x", expand=True, padx=(0, 6))
+            T.style_button(pb,
+                           bg=_c("SUCCESS_GLOW") if playing else _c("BTN"),
+                           hover_bg=_c("SUCCESS") if playing else _c("BTN_HOVER"))
+            play_btns[name] = pb
 
-            if s["playing"]:
-                btn_color = SUCCESS_GLOW
-                btn_text = f"{ICON_PLAY} {name}"
-                btn_fg = "#ffffff"
-            else:
-                btn_color = BTN
-                btn_text = name
-                btn_fg = TXT
+            # Editor button
+            ed_btn = tk.Button(r1, text="✎", bg=_c("BTN"), fg=_c("TXT"),
+                               font=("Segoe UI", 13), width=3, pady=11)
+            ed_btn.pack(side="right", padx=(4, 0))
+            ed_btn.config(command=lambda n=name: _open_editor(n))
+            T.style_button(ed_btn)
 
-            play_btn = tk.Button(top_row, text=btn_text, bg=btn_color, fg=btn_fg, font=FONT_LARGE, command=lambda n=name: (toggle_sound(n), refresh()), padx=20, pady=12, anchor="w")
-            play_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
-            
-            if s["playing"]:
-                style_button(play_btn, bg=SUCCESS_GLOW, hover_bg=SUCCESS, active_bg=SUCCESS_GLOW)
-            else:
-                style_button(play_btn)
-            
-            sound_buttons[name] = play_btn
+            # Effects popup button
+            fx_btn = tk.Button(r1, text="✨", bg=_c("BTN"), fg=_c("TXT"),
+                               font=("Segoe UI", 13), width=3, pady=11)
+            fx_btn.pack(side="right", padx=(4, 0))
+            fx_btn.config(command=lambda n=name, b=fx_btn: _effect_popup(n, b, _rebuild_badges))
+            T.style_button(fx_btn)
 
-            del_btn = tk.Button(top_row, text=ICON_DELETE, bg=DANGER_DARK, fg=TXT, font=("Segoe UI", 14, "bold"), command=lambda n=name: (remove_sound(n), refresh()), width=3, padx=10, pady=12)
-            del_btn.pack(side="right")
-            style_button(del_btn, bg=DANGER_DARK, hover_bg=DANGER)
+            # Delete
+            db = tk.Button(r1, text="×", bg=_c("DANGER_DARK"), fg="white",
+                           font=("Segoe UI", 14, "bold"), width=3, pady=11,
+                           command=lambda n=name: (_sm.remove_sound(n), refresh()))
+            db.pack(side="right")
+            T.style_button(db, bg=_c("DANGER_DARK"), hover_bg=_c("DANGER"))
 
-            hotkey_row = tk.Frame(card_content, bg=CARD)
-            hotkey_row.pack(fill="x", pady=(0, 10))
+            # Row 2: effect badges
+            r2 = tk.Frame(ci, bg=_c("CARD")); r2.pack(fill="x", pady=(0, 8))
+            tk.Label(r2, text="Effects: ", bg=_c("CARD"), fg=_c("SUBTXT"),
+                     font=_c("FONT_SMALL")).pack(side="left")
+            badge_row = tk.Frame(r2, bg=_c("CARD")); badge_row.pack(side="left", fill="x")
+            badge_rows[name] = badge_row
+            _rebuild_badges(name)
 
-            tk.Label(hotkey_row, text="Hotkey", bg=CARD, fg=SUBTXT, font=FONT_SMALL).pack(side="left")
+            # Row 3: hotkey
+            r3 = tk.Frame(ci, bg=_c("CARD")); r3.pack(fill="x", pady=(0, 8))
+            tk.Label(r3, text="Hotkey:", bg=_c("CARD"), fg=_c("SUBTXT"),
+                     font=_c("FONT_SMALL")).pack(side="left")
+            hk = s.get("hotkey")
+            tk.Label(r3, text=hk or "Not set",
+                     bg=_c("BTN"), fg=_c("ACCENT") if hk else _c("SUBTXT"),
+                     font=_c("FONT_MONO"), padx=8, pady=3).pack(side="left", padx=(8, 6))
+            hkb = tk.Button(r3, text=f"⌨  {'Change' if hk else 'Set'}",
+                            bg=_c("BTN"), fg=_c("TXT"), font=_c("FONT_SMALL"),
+                            padx=8, pady=3,
+                            command=lambda n=name: _hotkey_dialog(n, refresh))
+            hkb.pack(side="left", padx=(0,4)); T.style_button(hkb)
+            if hk:
+                clr = tk.Button(r3, text="✕", bg=_c("DANGER_DARK"), fg="white",
+                                font=_c("FONT_SMALL"), padx=6, pady=3,
+                                command=lambda n=name: (_sm.remove_hotkey(n), refresh()))
+                clr.pack(side="left")
+                T.style_button(clr, bg=_c("DANGER_DARK"), hover_bg=_c("DANGER"))
 
-            hotkey_display = s["hotkey"] if s["hotkey"] else "Not set"
-            hotkey_label = tk.Label(hotkey_row, text=hotkey_display, bg=BTN, fg=ACCENT if s["hotkey"] else SUBTXT, font=FONT_MONO, padx=10, pady=4)
-            hotkey_label.pack(side="left", padx=(10, 8))
+            # Row 4: volume
+            r4 = tk.Frame(ci, bg=_c("CARD")); r4.pack(fill="x")
+            r4h = tk.Frame(r4, bg=_c("CARD")); r4h.pack(fill="x", pady=(0,4))
+            tk.Label(r4h, text="Volume", bg=_c("CARD"), fg=_c("SUBTXT"),
+                     font=_c("FONT_SMALL")).pack(side="left")
+            vl = tk.Label(r4h, text=f"{int(s['volume']*100)}%",
+                          bg=_c("CARD"), fg=_c("ACCENT"), font=_c("FONT_MONO"))
+            vl.pack(side="right")
+            sl = tk.Scale(r4, from_=0, to=2, resolution=0.01, orient="horizontal",
+                          bg=_c("CARD"), fg=_c("TXT"), troughcolor=_c("BTN"),
+                          highlightthickness=0, showvalue=0)
+            sl.set(s["volume"])
+            def _sv(v, n=name, lbl=vl):
+                _sm.set_sound_volume(n, float(v))
+                lbl.config(text=f"{int(float(v)*100)}%")
+            sl.config(command=_sv); sl.pack(fill="x")
 
-            set_hotkey_btn = tk.Button(hotkey_row, text=f"{ICON_KEYBOARD} {'Change' if s['hotkey'] else 'Set'}", bg=BTN, fg=TXT, font=FONT_SMALL, command=lambda n=name: open_hotkey_dialog(n, refresh), padx=10, pady=4)
-            set_hotkey_btn.pack(side="left", padx=(0, 4))
-            style_button(set_hotkey_btn)
+            # Bind scroll to all card children
+            for widget in (card, ci, r1, r2, r3, r4, r4h, pb, fx_btn, ed_btn,
+                           db, hkb, sl, badge_row, vl):
+                widget.bind("<MouseWheel>", _scroll, add="+")
+                widget.bind("<Button-4>",   _scu,    add="+")
+                widget.bind("<Button-5>",   _scd,    add="+")
 
-            if s["hotkey"]:
-                clear_btn = tk.Button(hotkey_row, text=ICON_CLEAR, bg=DANGER_DARK, fg=TXT, font=FONT_SMALL, command=lambda n=name: (remove_hotkey(n), refresh()), padx=8, pady=4)
-                clear_btn.pack(side="left")
-                style_button(clear_btn, bg=DANGER_DARK, hover_bg=DANGER)
+        canvas.update_idletasks()
+        canvas.configure(scrollregion=canvas.bbox("all"))
 
-            vol_row = tk.Frame(card_content, bg=CARD)
-            vol_row.pack(fill="x")
+    # Live play-state update
+    def _live():
+        if not root.winfo_exists(): return
+        cur = _sm.sounds if _sm else sounds
+        for n, b in play_btns.items():
+            if n not in cur: continue
+            p = cur[n].get("playing", False)
+            want_bg  = _c("SUCCESS_GLOW") if p else _c("BTN")
+            want_txt = f"▶  {n}" if p else n
+            want_fg  = "#fff" if p else _c("TXT")
+            if b["bg"] != want_bg:
+                b.config(bg=want_bg, text=want_txt, fg=want_fg)
+        root.after(100, _live)
 
-            vol_label_frame = tk.Frame(vol_row, bg=CARD)
-            vol_label_frame.pack(fill="x", pady=(0, 5))
-            
-            tk.Label(vol_label_frame, text="Volume", bg=CARD, fg=SUBTXT, font=FONT_SMALL).pack(side="left")
-            
-            vol_val_label = tk.Label(vol_label_frame, text=f"{int(s['volume']*100)}%", bg=CARD, fg=ACCENT, font=FONT_MONO)
-            vol_val_label.pack(side="right")
+    def _open_editor(name):
+        from ui.sound_editor import open_editor
+        cur = _sm.sounds if _sm else sounds
+        open_editor(root, name, cur, on_close=lambda: (
+            refresh(),
+            _rebuild_badges(name)
+        ))
 
-            vol = tk.Scale(vol_row, from_=0, to=2, resolution=0.01, orient="horizontal", bg=CARD, fg=TXT, troughcolor=BTN, highlightthickness=0, showvalue=0)
-            vol.set(s["volume"])
-
-            def set_vol(val, n=name, label=vol_val_label):
-                set_sound_volume(n, float(val))
-                label.config(text=f"{int(float(val)*100)}%")
-
-            vol.config(command=set_vol)
-            vol.pack(fill="x")
-
-    def auto_refresh_buttons():
-        for name, btn in sound_buttons.items():
-            if name in sounds:
-                s = sounds[name]
-                if s["playing"]:
-                    if btn['bg'] != SUCCESS_GLOW:
-                        btn.config(bg=SUCCESS_GLOW, text=f"{ICON_PLAY} {name}", fg="#ffffff")
-                else:
-                    if btn['bg'] != BTN:
-                        btn.config(bg=BTN, text=name, fg=TXT)
-        root.after(100, auto_refresh_buttons)
-
-    content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    _current_refresh = refresh
     refresh()
-    auto_refresh_buttons()
+    _live()
 
-    if config.get("mic") is None or config.get("out") is None:
-        root.after(300, lambda: messagebox.showinfo("Welcome to Soundboard Pro", "Let's configure your audio devices to get started.") or open_settings())
+    if not config.get("mic_out"):
+        root.after(600, lambda: (
+            messagebox.showinfo("Welcome to Soundboard Pro",
+                                "Please open Settings to configure your audio devices."),
+            _open_settings()
+        ))
 
-    def on_close():
+
+# ─────────────────────────────────────────────────────────────
+# STARTUP
+# ─────────────────────────────────────────────────────────────
+try:
+    config = load_config()
+    T.set_theme(config.get("theme", "dark"))
+
+    root = tk.Tk()
+    root.title(f"Soundboard Pro  v{__version__}")
+    root.geometry("760x900")
+    root.configure(bg=_c("BG"))
+    root.minsize(600, 500)
+
+    # Show splash immediately, load heavy stuff right after
+    lf = tk.Frame(root, bg=_c("BG")); lf.pack(expand=True, fill="both")
+    tk.Label(lf, text="SOUNDBOARD PRO", bg=_c("BG"), fg=_c("ACCENT"),
+             font=("Segoe UI", 26, "bold")).pack(pady=(260, 10))
+    status = tk.Label(lf, text="Loading…", bg=_c("BG"), fg=_c("SUBTXT"),
+                      font=_c("FONT_MAIN"))
+    status.pack()
+    root.update()
+
+    def _startup():
+        try:
+            status.config(text="Loading audio libraries…"); root.update()
+            _load_modules()
+            status.config(text="Initialising audio…");     root.update()
+            _init_audio()
+            status.config(text="Building interface…");      root.update()
+            build_main_app()
+            try:
+                from updater import check_updates_in_background
+                check_updates_in_background(root)
+            except Exception: pass
+        except Exception:
+            traceback.print_exc()
+            messagebox.showerror("Startup Error",
+                                 "Soundboard Pro failed to start.\nSee console for details.")
+
+    root.after(80, _startup)
+
+    def _on_close():
         save_config(config)
-        keyboard.unhook_all()
-        audio_engine.stop()
+        try:
+            import keyboard; keyboard.unhook_all()
+        except Exception: pass
+        if _ae:
+            try: _ae.stop()
+            except Exception: pass
         root.destroy()
 
-    root.protocol("WM_DELETE_WINDOW", on_close)
+    root.protocol("WM_DELETE_WINDOW", _on_close)
     root.mainloop()
 
-except Exception as e:
-    import traceback
-    print("ERROR OCCURRED:")
+except Exception:
     traceback.print_exc()
-    
-    # Show error dialog instead of input() which doesn't work in GUI apps
     try:
-        from tkinter import messagebox
-        root_error = tk.Tk()
-        root_error.withdraw()
-        messagebox.showerror(
-            "Soundboard Pro - Startup Error",
-            f"Failed to start application:\n\n{str(e)}\n\nMake sure VB-Audio Cable is installed.\n\nCheck console for details."
-        )
-        root_error.destroy()
-    except:
-        pass  # If even the error dialog fails, just exit
+        _r = tk.Tk(); _r.withdraw()
+        messagebox.showerror("Fatal Error",
+                             "Soundboard Pro could not start.\nCheck the console.")
+        _r.destroy()
+    except Exception: pass

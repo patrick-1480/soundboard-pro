@@ -1,189 +1,154 @@
+# audio_engine.py
 import sounddevice as sd
 import numpy as np
 import threading
-import platform
 
-def request_microphone_permission():
-    """Request microphone permission on macOS"""
-    if platform.system() == 'Darwin':  # macOS
-        try:
-            import subprocess
-            # This will trigger the permission dialog
-            subprocess.run(['osascript', '-e', 'tell application "System Events" to return'], 
-                         capture_output=True, timeout=1)
-        except:
-            pass
-
-SR = 44100
 BLOCK = 1024
 
-mic_input_stream = None
-virtual_mic_stream = None
-headphone_stream = None
+config  = {}
+sounds  = {}
+_lock   = threading.Lock()
 
-config = {}
-sounds = {}
-lock = threading.Lock()
+_mic_stream     = None
+_vmic_stream    = None
+_monitor_stream = None
+_monitor_enabled = True
 
-# Global volumes
-mic_volume = 1.0
-headphone_volume = 1.0
-monitor_enabled = True  # Whether to hear yourself
+_mic_buf      = np.zeros(BLOCK, dtype="float32")
+_mic_buf_lock = threading.Lock()
+
+SR = 48000
+
 
 def init(cfg, snds):
     global config, sounds
     config = cfg
     sounds = snds
 
-def set_mic_volume(vol):
-    global mic_volume
-    mic_volume = float(vol)
 
-def set_headphone_volume(vol):
-    global headphone_volume
-    headphone_volume = float(vol)
+def set_monitor_enabled(enabled: bool):
+    global _monitor_enabled
+    _monitor_enabled = enabled
 
-def set_monitor_enabled(enabled):
-    global monitor_enabled
-    monitor_enabled = bool(enabled)
 
 def start():
-    global mic_input_stream, virtual_mic_stream, headphone_stream
-    stop()
-    
-    request_microphone_permission()
+    global _mic_stream, _vmic_stream, _monitor_stream, SR
 
-    if not config.get("mic") or not config.get("out"):
+    stop()
+
+    vmic_dev    = config.get("mic_out")
+    mic_dev     = config.get("mic")
+    monitor_dev = config.get("monitor_out")
+
+    if vmic_dev is None:
+        print("[audio] mic_out not set – skipping")
         return
 
-    # Input stream - capture real microphone
-    mic_input_stream = sd.InputStream(
-        samplerate=SR,
-        blocksize=BLOCK,
-        channels=1,
-        dtype="float32",
-        device=config["mic"],
-        callback=mic_callback
-    )
-    mic_input_stream.start()
+    # Detect SR from device
+    try:
+        SR = int(sd.query_devices(vmic_dev)["default_samplerate"])
+        print(f"[audio] device SR = {SR}")
+    except Exception as e:
+        print(f"[audio] SR detection failed: {e}, using {SR}")
 
-    # Output stream - virtual microphone (CABLE Input or similar)
-    virtual_mic_stream = sd.OutputStream(
-        samplerate=SR,
-        blocksize=BLOCK,
-        channels=1,
-        dtype="float32",
-        device=config["out"],
-    )
-    virtual_mic_stream.start()
+    # Reload sounds at correct SR
+    try:
+        import sound_manager as _sm
+        _sm.set_target_sr(SR)
+        _sm.load_sounds()
+        from effects import init_sound_effects
+        for s in _sm.sounds.values():
+            init_sound_effects(s)
+        print(f"[audio] {len(_sm.sounds)} sounds loaded at {SR} Hz")
+    except Exception as e:
+        print(f"[audio] sound reload failed: {e}")
 
-    # Headphone output (optional)
-    if config.get("headphone_out") is not None:
-        headphone_stream = sd.OutputStream(
-            samplerate=SR,
-            blocksize=BLOCK,
-            channels=1,
-            dtype="float32",
-            device=config["headphone_out"]
-        )
-        headphone_stream.start()
+    # Open monitor as a raw stream we write to manually (not callback-based)
+    # This way it is driven by the vmic callback — one clock, no drift.
+    if monitor_dev is not None:
+        try:
+            _monitor_stream = sd.RawOutputStream(
+                samplerate=SR, blocksize=BLOCK,
+                channels=1, dtype="float32",
+                device=monitor_dev)
+            _monitor_stream.start()
+            print(f"[audio] monitor started (device {monitor_dev})")
+        except Exception as e:
+            print(f"[audio] monitor failed: {e}")
+            _monitor_stream = None
+
+    # Mic input
+    def _mic_cb(indata, frames, time_info, status):
+        with _mic_buf_lock:
+            _mic_buf[:frames] = indata[:frames, 0]
+
+    if mic_dev is not None:
+        try:
+            _mic_stream = sd.InputStream(
+                samplerate=SR, blocksize=BLOCK,
+                channels=1, dtype="float32",
+                device=mic_dev, callback=_mic_cb)
+            _mic_stream.start()
+            print(f"[audio] mic started (device {mic_dev})")
+        except Exception as e:
+            print(f"[audio] mic failed: {e}")
+
+    # Virtual cable output — single callback, advances pos ONCE, writes to monitor too
+    def _vmic_cb(outdata, frames, time_info, status):
+        # Mix sounds — pos advances here only
+        sound_mix = np.zeros(frames, dtype="float32")
+        with _lock:
+            for s in sounds.values():
+                if not s.get("playing", False):
+                    continue
+                pos  = s["pos"]
+                data = s["data"]
+                chunk = data[pos: pos + frames]
+                if len(chunk) < frames:
+                    chunk = np.pad(chunk, (0, frames - len(chunk)))
+                    s["playing"] = False
+                    s["pos"]     = 0
+                else:
+                    s["pos"] = pos + frames
+                sound_mix += chunk * float(s.get("volume", 1.0))
+
+        # Add mic to virtual cable
+        mic_vol = float(config.get("mic_volume", 1.0))
+        with _mic_buf_lock:
+            mic = _mic_buf[:frames] * mic_vol
+
+        vmic_out = np.clip(sound_mix + mic, -1.0, 1.0)
+        outdata[:, 0] = vmic_out
+
+        # Write to headphones from the same callback — same clock, no drift
+        if _monitor_stream is not None:
+            hp_vol = float(config.get("headphone_volume", 1.0))
+            if _monitor_enabled:
+                hp_out = np.clip((sound_mix + mic) * hp_vol, -1.0, 1.0)
+            else:
+                hp_out = np.clip(sound_mix * hp_vol, -1.0, 1.0)
+            try:
+                _monitor_stream.write(hp_out.astype("float32").tobytes())
+            except Exception:
+                pass
+
+    try:
+        _vmic_stream = sd.OutputStream(
+            samplerate=SR, blocksize=BLOCK,
+            channels=1, dtype="float32",
+            device=vmic_dev, callback=_vmic_cb)
+        _vmic_stream.start()
+        print(f"[audio] virtual cable started (device {vmic_dev})")
+    except Exception as e:
+        print(f"[audio] virtual cable failed: {e}")
+        return
+
 
 def stop():
-    global mic_input_stream, virtual_mic_stream, headphone_stream
-    for s in (mic_input_stream, virtual_mic_stream, headphone_stream):
+    global _mic_stream, _vmic_stream, _monitor_stream
+    for s in (_mic_stream, _vmic_stream, _monitor_stream):
         if s:
-            try:
-                s.stop()
-                s.close()
-            except:
-                pass
-    mic_input_stream = None
-    virtual_mic_stream = None
-    headphone_stream = None
-
-# Buffer to store mic input for mixing
-mic_buffer = np.zeros(BLOCK, dtype="float32")
-mic_buffer_lock = threading.Lock()
-
-def mic_callback(indata, frames, time, status):
-    """Capture microphone input"""
-    global mic_buffer
-    with mic_buffer_lock:
-        mic_buffer = indata[:, 0].copy() * mic_volume
-
-def get_sound_mix(frames):
-    """Mix all playing sounds"""
-    mix = np.zeros(frames, dtype="float32")
-    
-    with lock:
-        for s in sounds.values():
-            if not s["playing"]:
-                continue
-
-            start = s["pos"]
-            end = start + frames
-            chunk = s["data"][start:end]
-
-            if len(chunk) < frames:
-                s["playing"] = False
-                s["pos"] = 0
-                chunk = np.pad(chunk, (0, frames - len(chunk)))
-            else:
-                s["pos"] = end
-
-            mix += chunk * s["volume"]
-    
-    return mix
-
-def audio_loop():
-    """Main audio loop - runs continuously"""
-    global mic_buffer
-    
-    while virtual_mic_stream or headphone_stream:
-        try:
-            # Get sound mix
-            sound_mix = get_sound_mix(BLOCK)
-            
-            # Get mic input
-            with mic_buffer_lock:
-                mic_data = mic_buffer.copy()
-            
-            # Combine mic + sounds
-            combined = sound_mix + mic_data
-            combined = np.clip(combined, -1, 1)
-            
-            # Output to virtual mic (what others hear)
-            if virtual_mic_stream:
-                try:
-                    virtual_mic_stream.write(combined.reshape(-1, 1))
-                except:
-                    pass
-            
-            # Output to headphones (what you hear)
-            if headphone_stream:
-                try:
-                    # Only include mic in headphone output if monitor is enabled
-                    if monitor_enabled:
-                        headphone_output = combined * headphone_volume
-                    else:
-                        # Just sounds, no mic
-                        headphone_output = sound_mix * headphone_volume
-                    headphone_stream.write(headphone_output.reshape(-1, 1))
-                except:
-                    pass
-            
-            # Small sleep to prevent CPU spinning
-            threading.Event().wait(BLOCK / SR * 0.5)
-            
-        except Exception as e:
-            print(f"Audio loop error: {e}")
-            break
-
-# Start audio processing thread
-audio_thread = None
-
-def start_audio_thread():
-    global audio_thread
-    if audio_thread is None or not audio_thread.is_alive():
-        audio_thread = threading.Thread(target=audio_loop, daemon=True)
-        audio_thread.start()
+            try: s.stop(); s.close()
+            except Exception: pass
+    _mic_stream = _vmic_stream = _monitor_stream = None
+    print("[audio] stopped")
